@@ -1,0 +1,35 @@
+// B站分区信息 - 根据官方API文档更新，一级主分区
+export const BILIBILI_PARTITIONS = [
+  { id: 1, name: "Animacion" },
+  { id: 4, name: "Videojuegos" },
+  { id: 8, name: "Remix/Memes" },
+  { id: 3, name: "Musica" },
+  { id: 129, name: "Baile" },
+  { id: 181, name: "Cine y TV" },
+  { id: 5, name: "Entretenimiento" },
+  { id: 36, name: "Conocimiento" },
+  { id: 188, name: "Tecnologia" },
+  { id: 202, name: "Noticias" },
+  { id: 76, name: "Gastronomia" },
+  { id: 138, name: "Mini teatro" },
+  { id: 176, name: "Automotriz" },
+  { id: 155, name: "Moda y belleza" },
+  { id: 235, name: "Deportes" },
+  { id: 75, name: "Animales" },
+  { id: 21, name: "Vlog" },
+  { id: 162, name: "Dibujo" },
+  { id: 207, name: "Inteligencia artificial" },
+  { id: 208, name: "Hogar e inmobiliaria" },
+  { id: 209, name: "Outdoor y tendencias" },
+  { id: 164, name: "Fitness" },
+  { id: 161, name: "Manualidades" },
+  { id: 165, name: "Viajes" },
+  { id: 158, name: "Agricultura" },
+  { id: 159, name: "Familia y crianza" },
+  { id: 160, name: "Salud" },
+  { id: 163, name: "Emociones y relaciones" },
+  { id: 22, name: "Intereses de vida" },
+  { id: 23, name: "Consejos de vida" }
+]
+
+
