@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Progress, Card, Tag, Space, Typography, Spin } from 'antd';
 import { PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { buildApiUrl } from '../config/api';
 
 const { Text, Title } = Typography;
 
@@ -43,7 +44,7 @@ const TaskProgress: React.FC<TaskProgressProps> = ({
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`http://localhost:8000/api/v1/progress/project/${projectId}`);
+      const response = await fetch(buildApiUrl(`/progress/project/${projectId}`));
       if (!response.ok) {
         throw new Error('获取进度失败');
       }

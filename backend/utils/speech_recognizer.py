@@ -263,8 +263,12 @@ class SpeechRecognizer:
         """检查本地Whisper是否可用"""
         try:
             whisper_cmd = self._get_whisper_command()
-            result = subprocess.run([whisper_cmd, '--help'], 
-                                  capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                [whisper_cmd, '--help'],
+                capture_output=True,
+                text=True,
+                timeout=20
+            )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             logger.warning("本地Whisper未安装或不可用")

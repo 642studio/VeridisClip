@@ -22,7 +22,7 @@ const { Text } = Typography
 interface SubtitleEditorProps {
   videoUrl: string
   subtitles: SubtitleSegment[]
-  onSave: (operations: VideoEditOperation[]) => void
+  onSave: (operations: VideoEditOperation[]) => Promise<void> | void
   onClose: () => void
 }
 
@@ -198,10 +198,15 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   }, [])
 
   // 保存编辑结果
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const operations = state.editHistory.slice(0, state.historyIndex + 1)
-    onSave(operations)
-    message.success('编辑已保存')
+    try {
+      await Promise.resolve(onSave(operations))
+      message.success('Edicion guardada')
+    } catch (error) {
+      console.error('保存编辑失败:', error)
+      message.error(error instanceof Error ? error.message : 'No se pudieron guardar los cambios')
+    }
   }, [state.editHistory, state.historyIndex, onSave])
 
   // 处理右键菜单

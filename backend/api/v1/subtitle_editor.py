@@ -123,6 +123,8 @@ async def get_clip_subtitles(
             segment_count=stats['segmentCount']
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         logger.error(f"获取字幕数据失败: {e}")
@@ -349,6 +351,8 @@ async def create_edit_preview(
             "count": len(preview_files)
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"创建编辑预览失败: {e}")
         raise HTTPException(status_code=500, detail=f"创建编辑预览失败: {str(e)}")

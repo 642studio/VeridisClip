@@ -1,6 +1,5 @@
 import logging
 import re
-import uuid
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import pysrt
@@ -57,12 +56,13 @@ class SubtitleProcessor:
         # 转换时间格式
         start_seconds = self._srt_time_to_seconds(sub.start)
         end_seconds = self._srt_time_to_seconds(sub.end)
+        segment_id = f"seg_{sub.index}_{int(start_seconds * 1000)}_{int(end_seconds * 1000)}"
         
         # 分解文本为单词
-        words = self._split_text_to_words(sub.text, start_seconds, end_seconds)
+        words = self._split_text_to_words(sub.text, start_seconds, end_seconds, segment_id)
         
         return {
-            'id': str(uuid.uuid4()),
+            'id': segment_id,
             'startTime': start_seconds,
             'endTime': end_seconds,
             'text': sub.text.strip(),
@@ -70,7 +70,7 @@ class SubtitleProcessor:
             'index': sub.index
         }
     
-    def _split_text_to_words(self, text: str, start_time: float, end_time: float) -> List[Dict]:
+    def _split_text_to_words(self, text: str, start_time: float, end_time: float, segment_id: str) -> List[Dict]:
         """
         将文本分解为单词，并分配时间戳
         
@@ -107,7 +107,7 @@ class SubtitleProcessor:
             word_end = word_start + word_duration
             
             words.append({
-                'id': str(uuid.uuid4()),
+                'id': f"{segment_id}_word_{i}",
                 'text': word_text,
                 'startTime': word_start,
                 'endTime': word_end

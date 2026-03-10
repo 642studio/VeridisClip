@@ -10,12 +10,20 @@ import json
 from pathlib import Path
 
 router = APIRouter()
+API_KEY_FIELDS = [
+    "dashscope_api_key",
+    "openai_api_key",
+    "gemini_api_key",
+    "siliconflow_api_key",
+]
 
 class SettingsRequest(BaseModel):
     """设置请求模型"""
     # 多提供商支持
     llm_provider: Optional[str] = None
     dashscope_api_key: Optional[str] = None
+    dashscope_http_base_url: Optional[str] = None
+    dashscope_workspace: Optional[str] = None
     openai_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
     siliconflow_api_key: Optional[str] = None
@@ -47,6 +55,8 @@ def load_settings() -> Dict[str, Any]:
     default_settings = {
         "llm_provider": "dashscope",
         "dashscope_api_key": "",
+        "dashscope_http_base_url": "",
+        "dashscope_workspace": "",
         "openai_api_key": "",
         "gemini_api_key": "",
         "siliconflow_api_key": "",
@@ -79,13 +89,29 @@ def save_settings(settings: Dict[str, Any]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar configuracion: {e}")
 
+def _mask_api_key(value: str) -> str:
+    """Mask API keys for read operations."""
+    if not value:
+        return ""
+    if len(value) <= 4:
+        return "*" * len(value)
+    return f"{'*' * (len(value) - 4)}{value[-4:]}"
+
+def _is_masked_key_value(value: str) -> bool:
+    """Detect masked placeholder values returned by this API."""
+    return bool(value) and "*" in value
+
 @router.get("/")
 async def get_settings():
     """获取系统设置"""
     try:
         settings = load_settings()
-        # 直接返回完整的设置，不隐藏API key
-        return settings
+        safe_settings = dict(settings)
+        for field in API_KEY_FIELDS:
+            raw_value = str(settings.get(field) or "")
+            safe_settings[field] = _mask_api_key(raw_value)
+            safe_settings[f"has_{field}"] = bool(raw_value)
+        return safe_settings
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al cargar configuracion: {e}")
 
@@ -94,24 +120,35 @@ async def update_settings(request: SettingsRequest):
     """更新系统设置"""
     try:
         settings = load_settings()
+
+        def apply_api_key_update(field: str, value: Optional[str]) -> None:
+            if value is None:
+                return
+            if _is_masked_key_value(value):
+                return
+            settings[field] = value
         
         # 更新多提供商设置
         if request.llm_provider is not None:
             settings["llm_provider"] = request.llm_provider
         
         if request.dashscope_api_key is not None:
-            settings["dashscope_api_key"] = request.dashscope_api_key
-            # 同时设置环境变量（保持兼容性）
-            os.environ["DASHSCOPE_API_KEY"] = request.dashscope_api_key
+            apply_api_key_update("dashscope_api_key", request.dashscope_api_key)
+
+        if request.dashscope_http_base_url is not None:
+            settings["dashscope_http_base_url"] = request.dashscope_http_base_url.strip()
+
+        if request.dashscope_workspace is not None:
+            settings["dashscope_workspace"] = request.dashscope_workspace.strip()
         
         if request.openai_api_key is not None:
-            settings["openai_api_key"] = request.openai_api_key
+            apply_api_key_update("openai_api_key", request.openai_api_key)
         
         if request.gemini_api_key is not None:
-            settings["gemini_api_key"] = request.gemini_api_key
+            apply_api_key_update("gemini_api_key", request.gemini_api_key)
         
         if request.siliconflow_api_key is not None:
-            settings["siliconflow_api_key"] = request.siliconflow_api_key
+            apply_api_key_update("siliconflow_api_key", request.siliconflow_api_key)
         
         if request.model_name is not None:
             settings["model_name"] = request.model_name
@@ -127,6 +164,14 @@ async def update_settings(request: SettingsRequest):
 
         if request.llm_debug is not None:
             settings["llm_debug"] = request.llm_debug
+
+        # 同步环境变量（保持兼容性）
+        os.environ["DASHSCOPE_API_KEY"] = str(settings.get("dashscope_api_key") or "")
+        dashscope_base_url = str(settings.get("dashscope_http_base_url") or "").strip()
+        if dashscope_base_url:
+            os.environ["DASHSCOPE_HTTP_BASE_URL"] = dashscope_base_url
+        else:
+            os.environ.pop("DASHSCOPE_HTTP_BASE_URL", None)
         
         # 保存设置
         save_settings(settings)
@@ -148,23 +193,32 @@ async def test_api_key(request: ApiKeyTestRequest) -> ApiKeyTestResponse:
     """测试API密钥"""
     try:
         # 导入LLM管理器
-        from ...core.llm_manager import get_llm_manager
-        from ...core.llm_providers import ProviderType
+        from ...core.llm_providers import ProviderType, LLMProviderFactory
         
         # 验证提供商类型
         try:
             provider_type = ProviderType(request.provider)
         except ValueError:
             return ApiKeyTestResponse(success=False, error=f"Proveedor no soportado: {request.provider}")
-        
-        # 测试连接
-        llm_manager = get_llm_manager()
-        success = llm_manager.test_provider_connection(provider_type, request.api_key, request.model_name)
-        
-        if success:
+
+        provider_kwargs: Dict[str, Any] = {}
+        if provider_type == ProviderType.DASHSCOPE:
+            runtime_settings = load_settings()
+            provider_kwargs = {
+                "base_url": str(runtime_settings.get("dashscope_http_base_url") or "").strip(),
+                "workspace": str(runtime_settings.get("dashscope_workspace") or "").strip(),
+            }
+
+        provider = LLMProviderFactory.create_provider(
+            provider_type,
+            request.api_key,
+            request.model_name,
+            **provider_kwargs,
+        )
+        response = provider.call("Responde exactamente: OK")
+        if response.content and response.content.strip():
             return ApiKeyTestResponse(success=True)
-        else:
-            return ApiKeyTestResponse(success=False, error="Fallo la validacion de conexion API")
+        return ApiKeyTestResponse(success=False, error="Conexion establecida pero respuesta vacia del modelo")
                 
     except Exception as e:
         return ApiKeyTestResponse(success=False, error=str(e))

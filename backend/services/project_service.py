@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 import shutil
 import logging
+import os
 from pathlib import Path
 
 from ..services.base import BaseService
@@ -203,16 +204,22 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
         if dt is None:
             return None
         
-        from datetime import datetime, timezone
-        import pytz
-        
-        # 由于SQLite存储时丢失了时区信息，我们假设这些时间是UTC时间
-        # 将其转换为本地时间
-        local_tz = pytz.timezone('Asia/Shanghai')
-        utc_time = dt.replace(tzinfo=timezone.utc)
-        local_time = utc_time.astimezone(local_tz)
-        
-        return local_time
+        from datetime import timezone
+        from zoneinfo import ZoneInfo
+
+        # SQLite中datetime通常为naive，这里按UTC解释再转换到配置时区。
+        tz_name = os.getenv("APP_TIMEZONE", "UTC")
+        try:
+            local_tz = ZoneInfo(tz_name)
+        except Exception:
+            local_tz = timezone.utc
+
+        if getattr(dt, "tzinfo", None) is None:
+            utc_time = dt.replace(tzinfo=timezone.utc)
+        else:
+            utc_time = dt.astimezone(timezone.utc)
+
+        return utc_time.astimezone(local_tz)
     
     def delete_project_with_files(self, project_id: str) -> bool:
         """

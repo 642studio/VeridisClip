@@ -27,6 +27,7 @@ class LLMManager:
     def __init__(self, settings_file: Optional[Path] = None):
         self.settings_file = settings_file or self._get_default_settings_file()
         self.current_provider: Optional[LLMProvider] = None
+        self._settings_mtime: Optional[float] = self._get_settings_mtime()
         self.settings = self._load_settings()
         self._initialize_provider()
     
@@ -41,6 +42,8 @@ class LLMManager:
         default_settings = {
             "llm_provider": "dashscope",
             "dashscope_api_key": "",
+            "dashscope_http_base_url": "",
+            "dashscope_workspace": "",
             "openai_api_key": "",
             "gemini_api_key": "",
             "siliconflow_api_key": "",
@@ -60,6 +63,29 @@ class LLMManager:
                 logger.warning(f"加载设置文件失败: {e}")
         
         return default_settings
+
+    def _get_settings_mtime(self) -> Optional[float]:
+        """获取设置文件修改时间（文件不存在时返回None）"""
+        try:
+            if self.settings_file.exists():
+                return self.settings_file.stat().st_mtime
+        except Exception as e:
+            logger.warning(f"读取设置文件修改时间失败: {e}")
+        return None
+
+    def _refresh_settings_if_changed(self):
+        """
+        当设置文件在其他进程被修改时（如Web进程更新，Celery长进程仍在运行），
+        自动重新加载配置并重建provider，避免使用过期API密钥/模型。
+        """
+        current_mtime = self._get_settings_mtime()
+        if current_mtime == self._settings_mtime:
+            return
+
+        logger.info("检测到LLM设置文件变化，正在重新加载配置")
+        self.settings = self._load_settings()
+        self._settings_mtime = current_mtime
+        self._initialize_provider()
     
     def _save_settings(self):
         """保存设置"""
@@ -67,6 +93,7 @@ class LLMManager:
         try:
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, ensure_ascii=False, indent=2)
+            self._settings_mtime = self._get_settings_mtime()
         except Exception as e:
             logger.error(f"保存设置失败: {e}")
             raise
@@ -81,8 +108,9 @@ class LLMManager:
             api_key = self._get_api_key_for_provider(provider_type)
             
             if api_key:
+                provider_kwargs = self._get_provider_kwargs(provider_type)
                 self.current_provider = LLMProviderFactory.create_provider(
-                    provider_type, api_key, model_name
+                    provider_type, api_key, model_name, **provider_kwargs
                 )
                 logger.info(f"已初始化{provider_type.value}提供商，模型: {model_name}")
                 write_llm_debug_event(
@@ -145,8 +173,9 @@ class LLMManager:
             self.update_settings(provider_settings)
             
             # 创建新的提供商实例
+            provider_kwargs = self._get_provider_kwargs(provider_type)
             self.current_provider = LLMProviderFactory.create_provider(
-                provider_type, api_key, model_name
+                provider_type, api_key, model_name, **provider_kwargs
             )
             
             logger.info(f"已切换到{provider_type.value}提供商，模型: {model_name}")
@@ -157,6 +186,7 @@ class LLMManager:
     
     def call(self, prompt: str, input_data: Any = None, **kwargs) -> str:
         """调用LLM"""
+        self._refresh_settings_if_changed()
         if not self.current_provider:
             raise ValueError("未配置LLM提供商，请在设置页面配置API密钥")
         
@@ -217,14 +247,27 @@ class LLMManager:
     def test_provider_connection(self, provider_type: ProviderType, api_key: str, model_name: str) -> bool:
         """测试提供商连接"""
         try:
-            provider = LLMProviderFactory.create_provider(provider_type, api_key, model_name)
+            provider_kwargs = self._get_provider_kwargs(provider_type)
+            provider = LLMProviderFactory.create_provider(
+                provider_type, api_key, model_name, **provider_kwargs
+            )
             return provider.test_connection()
         except Exception as e:
             logger.error(f"测试{provider_type.value}连接失败: {e}")
             return False
+
+    def _get_provider_kwargs(self, provider_type: ProviderType) -> Dict[str, Any]:
+        """获取提供商专属参数"""
+        if provider_type == ProviderType.DASHSCOPE:
+            return {
+                "base_url": str(self.settings.get("dashscope_http_base_url") or "").strip(),
+                "workspace": str(self.settings.get("dashscope_workspace") or "").strip(),
+            }
+        return {}
     
     def get_current_provider_info(self) -> Dict[str, Any]:
         """获取当前提供商信息"""
+        self._refresh_settings_if_changed()
         if not self.current_provider:
             return {"provider": None, "model": None, "available": False}
         
@@ -250,10 +293,23 @@ class LLMManager:
     
     def get_all_available_models(self) -> Dict[str, List[Dict[str, Any]]]:
         """获取所有可用模型"""
-        all_models = LLMProviderFactory.get_all_available_models()
+        self._refresh_settings_if_changed()
         result = {}
-        
-        for provider_type, models in all_models.items():
+
+        for provider_type in ProviderType:
+            try:
+                provider_class = LLMProviderFactory._providers.get(provider_type)
+                if not provider_class:
+                    models = []
+                else:
+                    provider_kwargs = self._get_provider_kwargs(provider_type)
+                    model_name = self.settings.get("model_name", "qwen-plus")
+                    temp_provider = provider_class("dummy_key", model_name, **provider_kwargs)
+                    models = temp_provider.get_available_models()
+            except Exception as e:
+                logger.warning(f"无法获取{provider_type.value}的模型列表: {e}")
+                models = []
+
             provider_name = provider_type.value
             result[provider_name] = [
                 {
@@ -269,6 +325,7 @@ class LLMManager:
     
     def parse_json_response(self, response: str) -> Any:
         """解析JSON响应（保持与原LLMClient的兼容性）"""
+        self._refresh_settings_if_changed()
         if not self.current_provider:
             raise ValueError("未配置LLM提供商")
         

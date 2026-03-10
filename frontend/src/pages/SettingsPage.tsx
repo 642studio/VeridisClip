@@ -68,19 +68,81 @@ const SettingsPage: React.FC = () => {
       
       setAvailableModels(models)
       setCurrentProvider(provider)
-      setSelectedProvider(settings.llm_provider || 'dashscope')
+      const resolvedProvider = settings.llm_provider || 'dashscope'
+      setSelectedProvider(resolvedProvider)
+      const normalizedModel = normalizeModelForProvider(
+        resolvedProvider,
+        settings.model_name,
+        settings.dashscope_http_base_url
+      )
       
       // 设置表单初始值
-      form.setFieldsValue(settings)
+      form.setFieldsValue({
+        ...settings,
+        model_name: normalizedModel
+      })
     } catch (error) {
       console.error('Error al cargar datos:', error)
     }
   }
 
   const getPreferredModelForProvider = (provider: string): string => {
-    const providerModels = availableModels?.[provider] || []
+    const providerModels = getModelsForProvider(provider)
     if (!providerModels.length) return ''
     return providerModels[0].name
+  }
+
+  const getDashScopeFallbackModels = (baseUrl?: string): Array<any> => {
+    const normalizedBaseUrl = String(baseUrl || '').toLowerCase()
+    if (normalizedBaseUrl.includes('dashscope-us.aliyuncs.com')) {
+      return [
+        { name: 'qwen-plus-us', display_name: 'Qwen Plus US', max_tokens: 8192 },
+        { name: 'qwen-flash-us', display_name: 'Qwen Flash US', max_tokens: 8192 }
+      ]
+    }
+
+    return [
+      { name: 'qwen-plus', display_name: 'Qwen Plus', max_tokens: 8192 },
+      { name: 'qwen-max', display_name: 'Qwen Max', max_tokens: 8192 },
+      { name: 'qwen-flash', display_name: 'Qwen Flash', max_tokens: 8192 },
+      { name: 'qwen-turbo', display_name: 'Qwen Turbo', max_tokens: 8192 }
+    ]
+  }
+
+  const getFallbackModelsForProvider = (provider: string, dashscopeBaseUrl?: string): Array<any> => {
+    if (provider !== 'dashscope') return []
+    return getDashScopeFallbackModels(dashscopeBaseUrl)
+  }
+
+  const getModelsForProvider = (provider: string, dashscopeBaseUrl?: string): Array<any> => {
+    const providerModels = availableModels?.[provider] || []
+    if (providerModels.length > 0) return providerModels
+    const resolvedBaseUrl = dashscopeBaseUrl ?? form.getFieldValue('dashscope_http_base_url')
+    return getFallbackModelsForProvider(provider, resolvedBaseUrl)
+  }
+
+  const normalizeModelForProvider = (provider: string, modelName?: string, dashscopeBaseUrl?: string): string => {
+    const providerModels = getModelsForProvider(provider, dashscopeBaseUrl)
+    if (!providerModels.length) return modelName || ''
+    const resolvedModel = modelName || ''
+    if (providerModels.some((m: any) => m.name === resolvedModel)) return resolvedModel
+    return providerModels[0].name
+  }
+
+  const handleFormValuesChange = (changedValues: any, allValues: any) => {
+    if (
+      selectedProvider === 'dashscope' &&
+      Object.prototype.hasOwnProperty.call(changedValues, 'dashscope_http_base_url')
+    ) {
+      const normalizedModel = normalizeModelForProvider(
+        'dashscope',
+        allValues.model_name,
+        allValues.dashscope_http_base_url
+      )
+      if (normalizedModel && normalizedModel !== allValues.model_name) {
+        form.setFieldsValue({ model_name: normalizedModel })
+      }
+    }
   }
 
   // Guardar configuracion
@@ -146,7 +208,7 @@ const SettingsPage: React.FC = () => {
   // 提供商切换
   const handleProviderChange = (provider: string) => {
     const currentModel = form.getFieldValue('model_name')
-    const providerModels = availableModels?.[provider] || []
+    const providerModels = getModelsForProvider(provider)
     const modelIsValidForProvider = providerModels.some((m: any) => m.name === currentModel)
     const nextModel = modelIsValidForProvider ? currentModel : getPreferredModelForProvider(provider)
     setSelectedProvider(provider)
@@ -176,9 +238,12 @@ const SettingsPage: React.FC = () => {
                 layout="vertical"
                 className="settings-form"
                 onFinish={handleSave}
+                onValuesChange={handleFormValuesChange}
                 initialValues={{
                   llm_provider: 'dashscope',
                   model_name: 'qwen-plus',
+                  dashscope_http_base_url: '',
+                  dashscope_workspace: '',
                   chunk_size: 5000,
                   min_score_threshold: 0.7,
                   max_clips_per_collection: 5,
@@ -237,6 +302,39 @@ const SettingsPage: React.FC = () => {
                   />
                 </Form.Item>
 
+                {selectedProvider === 'dashscope' && (
+                  <>
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message="Si tu clave es de US (Virginia), usa endpoint de US"
+                      description="Ejemplo recomendado: https://dashscope-us.aliyuncs.com/api/v1. Si es China mainland, puedes dejarlo vacio."
+                    />
+                    <Form.Item
+                      label="DashScope HTTP Base URL (opcional)"
+                      name="dashscope_http_base_url"
+                      className="form-item"
+                    >
+                      <Input
+                        placeholder="https://dashscope-us.aliyuncs.com/api/v1"
+                        prefix={<ApiOutlined />}
+                        className="settings-input"
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      label="DashScope Workspace ID (opcional)"
+                      name="dashscope_workspace"
+                      className="form-item"
+                    >
+                      <Input
+                        placeholder="ws_xxxxxxxxxx"
+                        className="settings-input"
+                      />
+                    </Form.Item>
+                  </>
+                )}
+
                 {/* 模型选择 */}
                 <Form.Item
                   label="Modelo"
@@ -252,7 +350,7 @@ const SettingsPage: React.FC = () => {
                       String(option?.value || '').toLowerCase().includes(input.toLowerCase())
                     }
                   >
-                    {availableModels[selectedProvider]?.map((model: any) => (
+                    {getModelsForProvider(selectedProvider)?.map((model: any) => (
                       <Select.Option key={model.name} value={model.name}>
                         <Space>
                           <span>{model.display_name}</span>
@@ -364,6 +462,7 @@ const SettingsPage: React.FC = () => {
                   <Paragraph className="instruction-text">
                     El sistema soporta multiples proveedores de IA:
                     <br />• <Text strong>Qwen (Alibaba)</Text>: obtener API key en Alibaba Cloud.
+                    <br />• <Text strong>Qwen US (Virginia)</Text>: usar endpoint `https://dashscope-us.aliyuncs.com/api/v1` y modelos `qwen-plus-us` / `qwen-flash-us`.
                     <br />• <Text strong>OpenAI</Text>: obtener API key en platform.openai.com.
                     <br />• <Text strong>Google Gemini</Text>: obtener API key en ai.google.dev.
                     <br />• <Text strong>SiliconFlow</Text>: obtener API key en docs.siliconflow.cn.

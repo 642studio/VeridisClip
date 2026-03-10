@@ -22,7 +22,7 @@ class CeleryConfig:
     task_serializer = 'json'
     accept_content = ['json']
     result_serializer = 'json'
-    timezone = 'Asia/Shanghai'
+    timezone = os.getenv('CELERY_TIMEZONE', 'Asia/Shanghai')
     enable_utc = True
     
     # Redis配置

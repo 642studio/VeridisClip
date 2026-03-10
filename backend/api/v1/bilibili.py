@@ -211,8 +211,8 @@ async def create_bilibili_download_task(request: BilibiliDownloadRequest):
                 status="pending",
                 progress=0.0,
                 project_id=project_id,  # 关联项目ID
-                created_at=str(uuid.uuid1().time),
-                updated_at=str(uuid.uuid1().time)
+                created_at=datetime.utcnow().isoformat(),
+                updated_at=datetime.utcnow().isoformat()
             )
             
             # 存储任务

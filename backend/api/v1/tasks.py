@@ -174,12 +174,12 @@ async def get_task_status(
             "task_id": task_id,
             "status": task.status,
             "progress": task.progress,
-            "message": task.message,
-            "error": task.error,
+            "message": task.name,
+            "error_message": task.error_message,
+            "result": task.result,
             "updated_at": task.updated_at
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取任务状态失败: {str(e)}")
-

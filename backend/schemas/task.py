@@ -85,7 +85,7 @@ class TaskFilter(BaseSchema):
 
 class TaskProgress(BaseSchema):
     """Schema for task progress update."""
-    task_id: int = Field(description="Task ID")
+    task_id: str = Field(description="Task ID")
     progress: float = Field(..., ge=0, le=100, description="Progress percentage")
     status: Optional[TaskStatus] = Field(default=None, description="Task status")
     message: Optional[str] = Field(default=None, description="Progress message")

@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional, Union
 from enum import Enum
 from dataclasses import dataclass
-from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -95,16 +95,59 @@ class DashScopeProvider(LLMProvider):
     
     def __init__(self, api_key: str, model_name: str = "qwen-plus", **kwargs):
         super().__init__(api_key, model_name, **kwargs)
+        self.workspace = self._normalize_optional_str(
+            kwargs.get("workspace") or os.getenv("DASHSCOPE_WORKSPACE")
+        )
+        self.base_url = self._normalize_base_url(
+            kwargs.get("base_url") or os.getenv("DASHSCOPE_HTTP_BASE_URL")
+        )
         try:
+            import dashscope
             from dashscope import Generation
+            self.dashscope = dashscope
             self.generation = Generation
+            if self.base_url:
+                self.dashscope.base_http_api_url = self.base_url
+                logger.info(f"DashScope base URL configurado: {self.base_url}")
         except ImportError:
             raise ImportError("Instala dashscope: pip install dashscope")
+
+    @staticmethod
+    def _normalize_optional_str(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @classmethod
+    def _normalize_base_url(cls, base_url: Optional[str]) -> Optional[str]:
+        normalized = cls._normalize_optional_str(base_url)
+        if not normalized:
+            return None
+
+        if "://" not in normalized:
+            normalized = f"https://{normalized}"
+
+        parsed = urlsplit(normalized)
+        if not parsed.scheme or not parsed.netloc:
+            return normalized.rstrip("/")
+
+        path = parsed.path.rstrip("/")
+        if not path:
+            path = "/api/v1"
+
+        return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
     
     def call(self, prompt: str, input_data: Any = None, **kwargs) -> LLMResponse:
         """调用DashScope API"""
         try:
             full_input = self._build_full_input(prompt, input_data)
+            call_kwargs = dict(kwargs)
+            workspace = self._normalize_optional_str(call_kwargs.pop("workspace", None)) or self.workspace
+            if workspace:
+                call_kwargs["workspace"] = workspace
+            if self.base_url:
+                self.dashscope.base_http_api_url = self.base_url
 
             # Compatibilidad entre SDKs viejos/nuevos de DashScope.
             try:
@@ -113,7 +156,7 @@ class DashScopeProvider(LLMProvider):
                     prompt=full_input,
                     api_key=self.api_key,
                     stream=False,
-                    **kwargs
+                    **call_kwargs
                 )
             except Exception as first_error:
                 logger.warning(f"DashScope prompt-call fallback a messages: {first_error}")
@@ -123,7 +166,7 @@ class DashScopeProvider(LLMProvider):
                     result_format="message",
                     api_key=self.api_key,
                     stream=False,
-                    **kwargs
+                    **call_kwargs
                 )
             
             # 处理响应
@@ -175,6 +218,25 @@ class DashScopeProvider(LLMProvider):
     
     def get_available_models(self) -> List[ModelInfo]:
         """获取DashScope可用模型"""
+        base_url = (self.base_url or "").lower()
+        if "dashscope-us.aliyuncs.com" in base_url:
+            return [
+                ModelInfo(
+                    name="qwen-plus-us",
+                    display_name="Qwen Plus US",
+                    provider=ProviderType.DASHSCOPE,
+                    max_tokens=8192,
+                    description="Modelo Qwen Plus para region US (Virginia)"
+                ),
+                ModelInfo(
+                    name="qwen-flash-us",
+                    display_name="Qwen Flash US",
+                    provider=ProviderType.DASHSCOPE,
+                    max_tokens=8192,
+                    description="Modelo Qwen Flash para region US (Virginia)"
+                ),
+            ]
+
         return [
             ModelInfo(
                 name="qwen-plus",
@@ -191,11 +253,18 @@ class DashScopeProvider(LLMProvider):
                 description="Modelo Qwen Max de Alibaba Cloud"
             ),
             ModelInfo(
+                name="qwen-flash",
+                display_name="Qwen Flash",
+                provider=ProviderType.DASHSCOPE,
+                max_tokens=8192,
+                description="Modelo Qwen Flash de Alibaba Cloud"
+            ),
+            ModelInfo(
                 name="qwen-turbo",
                 display_name="Qwen Turbo",
                 provider=ProviderType.DASHSCOPE,
                 max_tokens=8192,
-                description="Modelo Qwen Turbo de Alibaba Cloud"
+                description="Modelo Qwen Turbo (compatibilidad)"
             )
         ]
 

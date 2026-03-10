@@ -1,8 +1,9 @@
 import axios from 'axios'
 import { Project, Clip, Collection } from '../store/useProjectStore'
+import { buildApiUrl, getApiBaseUrl } from '../config/api'
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.trim() || 'http://localhost:8000/api/v1'
+const API_BASE_URL = getApiBaseUrl()
+export { getApiBaseUrl }
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -147,8 +148,6 @@ export const settingsApi = {
     return api.get('/settings/current-provider')
   }
 }
-
-export const getApiBaseUrl = () => API_BASE_URL
 
 const normalizeProject = (project: any): Project => {
   const normalizedProcessingConfig =
@@ -398,7 +397,7 @@ export const projectApi = {
     
     try {
       // 对于blob类型的响应，需要直接使用axios而不是经过拦截器
-      const response = await axios.get(`http://localhost:8000/api/v1${url}`, { 
+      const response = await axios.get(buildApiUrl(url), { 
         responseType: 'blob',
         headers: {
           'Accept': 'application/octet-stream'
@@ -458,13 +457,13 @@ export const projectApi = {
   // 获取切片视频URL
   getClipVideoUrl: (projectId: string, clipId: string, _clipTitle?: string): string => {
     // 使用projects路由获取切片视频
-    return `http://localhost:8000/api/v1/projects/${projectId}/clips/${clipId}`
+    return buildApiUrl(`/projects/${projectId}/clips/${clipId}`)
   },
 
   // 获取合集视频URL
   getCollectionVideoUrl: (projectId: string, collectionId: string): string => {
     // 使用files路由获取合集视频
-    return `http://localhost:8000/api/v1/files/projects/${projectId}/collections/${collectionId}`
+    return buildApiUrl(`/files/projects/${projectId}/collections/${collectionId}`)
   },
 
   // 生成项目缩略图

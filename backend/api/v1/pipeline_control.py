@@ -130,8 +130,7 @@ async def restart_pipeline(
         stop_result = await stop_pipeline(project_id, db)
         
         # 等待一下确保停止完成
-        import time
-        time.sleep(2)
+        await asyncio.sleep(2)
         
         # 重新启动流水线
         start_result = await start_pipeline(project_id, background_tasks, db)

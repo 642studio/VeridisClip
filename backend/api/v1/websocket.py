@@ -92,17 +92,16 @@ async def handle_client_message(user_id: str, message: Dict[str, Any]):
     message_type = message.get("type")
     
     if message_type == "sync_subscriptions":
-        # 新的幂等订阅方式
-        project_ids = message.get("project_ids", [])
-        # 直接传入项目ID，让网关服务内部进行规范化
-        channels = set(project_ids)
-        
-        stats = await websocket_gateway_service.sync_user_subscriptions(user_id, channels)
+        # 同步订阅集对齐（兼容 project_ids/channels 两种字段）
+        desired = message.get("project_ids")
+        if desired is None:
+            desired = message.get("channels", [])
+        stats = await websocket_gateway_service.sync_user_subscriptions(user_id, desired)
         
         response = WebSocketMessage.create_system_notification(
             "subscription_sync",
             "订阅同步完成",
-            f"新增 {stats['added']} / 移除 {stats['removed']} / 未变 {stats['unchanged']}",
+            f"新增 {len(stats['added'])} / 移除 {len(stats['removed'])} / 未变 {len(stats['unchanged'])}",
             "success"
         )
         await manager.send_personal_message(response, user_id)
@@ -198,18 +197,6 @@ async def handle_client_message(user_id: str, message: Dict[str, Any]):
                 "success"
             )
             await manager.send_personal_message(response, user_id)
-    
-    elif message_type == "sync_subscriptions":
-        # 同步订阅集对齐
-        task_ids = message.get("channels", [])
-        results = await websocket_gateway_service.sync_user_subscriptions(user_id, task_ids)
-        response = WebSocketMessage.create_system_notification(
-            "subscription_sync",
-            "订阅集同步完成",
-            f"新增: {len(results['added'])}, 移除: {len(results['removed'])}, 未变: {len(results['unchanged'])}",
-            "success"
-        )
-        await manager.send_personal_message(response, user_id)
     
     elif message_type == "ping":
         # 心跳检测

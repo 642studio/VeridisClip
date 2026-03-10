@@ -243,10 +243,7 @@ async def get_project(
         if include_clips or include_collections:
             from ...services.clip_service import ClipService
             from ...services.collection_service import CollectionService
-            from ...core.database import get_db
-            
-            # 获取数据库会话
-            db = next(get_db())
+            db = project_service.db
             
             if include_clips:
                 clip_service = ClipService(db)
@@ -283,27 +280,14 @@ async def update_project(
 ):
     """Update a project."""
     try:
-        project = project_service.update_project(project_id, project_data)
+        updated_project = project_service.update_project(project_id, project_data)
+        if not updated_project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        project = project_service.get_project_with_stats(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
-        # Convert to response (simplified)
-        return ProjectResponse(
-            id=str(project_id),  # Keep as string for UUID
-            name=project_data.name or "Updated Project",
-            description=project_data.description,
-            project_type=ProjectType.DEFAULT,  # Use enum
-            status=ProjectStatus.PENDING,  # Use enum
-            source_url=None,
-            source_file=None,
-            settings=project_data.settings or {},
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-            completed_at=None,
-            total_clips=0,
-            total_collections=0,
-            total_tasks=0
-        )
+        return project
     except HTTPException:
         raise
     except Exception as e:
@@ -544,8 +528,8 @@ async def retry_processing(
                             status="pending",
                             progress=0.0,
                             project_id=project_id,
-                            created_at=str(uuid.uuid1().time),
-                            updated_at=str(uuid.uuid1().time)
+                            created_at=datetime.utcnow().isoformat(),
+                            updated_at=datetime.utcnow().isoformat()
                         )
                         
                         # 存储任务
@@ -601,8 +585,8 @@ async def retry_processing(
                             status="pending",
                             progress=0.0,
                             project_id=project_id,
-                            created_at=str(uuid.uuid1().time),
-                            updated_at=str(uuid.uuid1().time),
+                            created_at=datetime.utcnow().isoformat(),
+                            updated_at=datetime.utcnow().isoformat(),
                         )
                         
                         # 异步启动下载任务
@@ -757,35 +741,32 @@ async def get_project_logs(
 ):
     """Get project logs."""
     try:
-        # 模拟日志数据，实际应该从日志服务获取
-        return {
-            "logs": [
+        # 仅确保项目存在；日志暂时按全局文件返回最后 N 行
+        project = project_service.get(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        from ...core.config import get_logging_config
+
+        log_file = Path(get_logging_config().get("file", "backend.log"))
+        if not log_file.exists():
+            return {"logs": []}
+
+        raw_lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        selected = raw_lines[-lines:]
+        parsed_logs = []
+        for line in selected:
+            parsed_logs.append(
                 {
-                    "timestamp": "2025-08-01T13:30:00.000Z",
-                    "module": "processing",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "module": "backend",
                     "level": "INFO",
-                    "message": "开始处理项目"
-                },
-                {
-                    "timestamp": "2025-08-01T13:30:05.000Z",
-                    "module": "processing",
-                    "level": "INFO",
-                    "message": "Step 1: 提取大纲完成"
-                },
-                {
-                    "timestamp": "2025-08-01T13:30:10.000Z",
-                    "module": "processing",
-                    "level": "INFO",
-                    "message": "Step 2: 时间定位完成"
-                },
-                {
-                    "timestamp": "2025-08-01T13:30:15.000Z",
-                    "module": "processing",
-                    "level": "INFO",
-                    "message": "Step 3: 内容评分进行中..."
+                    "message": line,
                 }
-            ]
-        }
+            )
+        return {"logs": parsed_logs}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) 
 

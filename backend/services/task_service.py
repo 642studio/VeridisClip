@@ -30,7 +30,7 @@ class TaskService(BaseService[Task, TaskCreate, TaskUpdate, TaskResponse]):
             "task_type": data["task_type"],
             "priority": data.get("priority", 0),
             "task_config": data.get("task_config", {}),
-            "result_data": data.get("metadata", {})
+            "task_metadata": data.get("metadata", {})
         }
         return self.create(**orm_data)
     
@@ -39,6 +39,11 @@ class TaskService(BaseService[Task, TaskCreate, TaskUpdate, TaskResponse]):
         update_data = {k: v for k, v in task_data.model_dump().items() if v is not None}
         if not update_data:
             return self.get(task_id)
+
+        if "result" in update_data:
+            update_data["result_data"] = update_data.pop("result")
+        if "metadata" in update_data:
+            update_data["task_metadata"] = update_data.pop("metadata")
         
         return self.update(task_id, **update_data)
     
@@ -52,7 +57,7 @@ class TaskService(BaseService[Task, TaskCreate, TaskUpdate, TaskResponse]):
         if status is not None:
             update_data["status"] = status
         if result is not None:
-            update_data["result"] = result
+            update_data["result_data"] = result
         
         return self.update(task_id, **update_data)
     
@@ -79,7 +84,7 @@ class TaskService(BaseService[Task, TaskCreate, TaskUpdate, TaskResponse]):
     
     def delete_task(self, task_id: str) -> bool:
         """Delete a task."""
-        return self.delete(task_id) is not None
+        return self.delete(task_id)
     
     def _convert_to_response(self, task: Task) -> TaskResponse:
         """Convert Task model to TaskResponse schema."""

@@ -13,6 +13,7 @@ import { NotificationList } from './NotificationList';
 import { useNotifications } from '../hooks/useNotifications';
 import { useProjectStore } from '../store/useProjectStore';
 import { projectApi } from '../api/projectApi';
+import { buildApiUrl } from '../config/api';
 
 const { Text } = Typography;
 
@@ -32,7 +33,7 @@ export const RealTimeStatus: React.FC<RealTimeStatusProps> = ({ userId }) => {
     console.log('📤 开始加载项目任务:', projectId);
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/tasks/project/${projectId}`);
+      const response = await fetch(buildApiUrl(`/tasks/project/${projectId}`));
       console.log('📡 API响应状态:', response.status);
       
       if (response.ok) {

@@ -4,6 +4,7 @@
 """
 
 import enum
+from datetime import datetime
 from sqlalchemy import Column, String, Integer, Float, ForeignKey, Enum, JSON, DateTime, Text
 from sqlalchemy.orm import relationship
 from .base import BaseModel, TimestampMixin
@@ -183,13 +184,9 @@ class Task(BaseModel, TimestampMixin):
         if current_step:
             self.current_step = current_step
     
-    def is_completed(self):
-        """检查是否完成"""
+    def is_terminal(self):
+        """检查是否为终态"""
         return self.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]
-    
-    def is_running(self):
-        """检查是否运行中"""
-        return self.status == TaskStatus.RUNNING
     
     def is_pending(self):
         """检查是否待处理"""

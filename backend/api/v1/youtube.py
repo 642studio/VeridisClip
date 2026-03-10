@@ -316,8 +316,8 @@ async def create_youtube_download_task(request: YouTubeDownloadRequest):
                 status="pending",
                 progress=0.0,
                 project_id=project_id,  # 关联项目ID
-                created_at=str(uuid.uuid1().time),
-                updated_at=str(uuid.uuid1().time)
+                created_at=datetime.utcnow().isoformat(),
+                updated_at=datetime.utcnow().isoformat()
             )
             
             # 存储任务
@@ -498,12 +498,18 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
                 # Whisper失败时，尝试多种策略获取平台字幕作为备用
                 logger.info("尝试下载平台字幕作为备用方案")
                 try:
-                    subtitle_path = await _try_youtube_subtitle_strategies(request.url, download_dir, request.browser)
+                    subtitle_path = await asyncio.wait_for(
+                        _try_youtube_subtitle_strategies(request.url, download_dir, request.browser),
+                        timeout=90
+                    )
                     if subtitle_path:
                         logger.info(f"备用字幕获取成功: {subtitle_path}")
                     else:
                         logger.warning("所有字幕获取策略都失败了")
                         subtitle_path = None  # 确保字幕路径为空，后续会标记项目失败
+                except asyncio.TimeoutError:
+                    logger.error("备用字幕获取超时")
+                    subtitle_path = None
                 except Exception as backup_error:
                     logger.error(f"备用字幕获取也失败: {backup_error}")
                     subtitle_path = None  # 确保字幕路径为空，后续会标记项目失败
@@ -590,24 +596,25 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
             # 检查字幕文件是否存在，如果不存在则标记项目为失败
             srt_file_path = raw_dir / "input.srt"
             if not srt_file_path.exists():
+                subtitle_error_message = "No se encontraron subtitulos y Whisper/ASR no esta disponible"
                 logger.error(f"字幕文件不存在: {srt_file_path}，项目将标记为失败状态")
                 from ...schemas.project import ProjectStatus
                 project.status = ProjectStatus.FAILED
                 cfg = dict(project.processing_config or {})
                 cfg["download_status"] = "failed"
-                cfg["error_message"] = "字幕文件不存在且Whisper生成失败"
+                cfg["error_message"] = subtitle_error_message
                 project.processing_config = cfg
                 db.commit()
                 
                 # 更新任务状态为失败
                 download_tasks[task_id].status = "failed"
-                download_tasks[task_id].error_message = "字幕文件不存在且Whisper生成失败"
+                download_tasks[task_id].error_message = subtitle_error_message
                 download_tasks[task_id].progress = 0.0
                 download_tasks[task_id].project_id = str(project.id)
                 download_tasks[task_id].updated_at = datetime.now().isoformat()
                 
                 # 更新项目下载进度为失败
-                await update_project_download_progress(project_id, 0.0, "下载失败：字幕文件不存在")
+                await update_project_download_progress(project_id, 0.0, "Descarga fallida: no se pudieron generar subtitulos")
                 
                 logger.info(f"YouTube下载任务失败: {task_id}, 项目ID: {project.id}, 原因: 字幕文件不存在")
                 return
@@ -710,19 +717,22 @@ async def _try_download_with_different_formats(url: str, download_dir: Path, bro
     import asyncio
     logger.info("尝试下载不同格式的YouTube字幕...")
     
-    formats = ['srt', 'vtt', 'json3']
+    # 仅尝试可直接用于后续流程的字幕格式
+    formats = ['srt', 'vtt']
     
     for fmt in formats:
         try:
             ydl_opts = {
-                'format': 'best[ext=mp4]/best',
+                # 仅下载字幕，避免重复下载视频导致超时/失败
+                'skip_download': True,
                 'writesubtitles': True,
                 'writeautomaticsub': True,
-                'subtitleslangs': ['en', 'zh-Hans', 'zh'],
+                'subtitleslangs': ['en', 'es', 'zh-Hans', 'zh', 'en-US', 'auto'],
                 'subtitlesformat': fmt,
-                'outtmpl': str(download_dir / f'subtitle_%(title)s.%(ext)s'),
+                'outtmpl': str(download_dir / 'subtitle_%(id)s.%(ext)s'),
                 'noplaylist': True,
                 'quiet': True,
+                'ignoreerrors': True,
             }
             
             if browser:
@@ -732,11 +742,15 @@ async def _try_download_with_different_formats(url: str, download_dir: Path, bro
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     return ydl.download([url])
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, download_sync, url, ydl_opts)
             
             # 查找下载的字幕文件
-            subtitle_files = list(download_dir.glob(f"*.{fmt}"))
+            subtitle_files = sorted(
+                download_dir.glob(f"*.{fmt}"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True
+            )
             if subtitle_files:
                 subtitle_path = str(subtitle_files[0])
                 
@@ -771,14 +785,15 @@ async def _try_download_with_different_langs(url: str, download_dir: Path, brows
     for langs in lang_combinations:
         try:
             ydl_opts = {
-                'format': 'best[ext=mp4]/best',
+                'skip_download': True,
                 'writesubtitles': True,
                 'writeautomaticsub': True,
                 'subtitleslangs': langs,
-                'subtitlesformat': 'srt',
-                'outtmpl': str(download_dir / f'lang_%(title)s.%(ext)s'),
+                'subtitlesformat': 'srt/vtt/best',
+                'outtmpl': str(download_dir / 'lang_%(id)s.%(ext)s'),
                 'noplaylist': True,
                 'quiet': True,
+                'ignoreerrors': True,
             }
             
             if browser:
@@ -788,13 +803,28 @@ async def _try_download_with_different_langs(url: str, download_dir: Path, brows
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     return ydl.download([url])
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, download_sync, url, ydl_opts)
             
             # 查找下载的字幕文件
-            subtitle_files = list(download_dir.glob("*.srt"))
+            subtitle_files = sorted(
+                download_dir.glob("*.srt"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True
+            )
             if subtitle_files:
                 return str(subtitle_files[0])
+
+            vtt_files = sorted(
+                download_dir.glob("*.vtt"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True
+            )
+            if vtt_files:
+                vtt_path = str(vtt_files[0])
+                srt_path = vtt_path.replace('.vtt', '.srt')
+                await _convert_vtt_to_srt(vtt_path, srt_path)
+                return srt_path
                 
         except Exception as e:
             logger.debug(f"尝试语言 {langs} 失败: {e}")

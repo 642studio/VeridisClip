@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { TaskUpdateMessage, ProjectUpdateMessage } from './useWebSocket';
+import { buildApiUrl } from '../config/api';
 
 export interface TaskStatus {
   id: string;
@@ -114,20 +115,24 @@ export const useTaskStatus = () => {
     console.log('📤 开始加载项目任务:', projectId);
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/tasks/project/${projectId}`);
+      const response = await fetch(buildApiUrl(`/tasks/project/${projectId}`));
       console.log('📡 API响应状态:', response.status);
       
       if (response.ok) {
         const data = await response.json();
-        const projectTasks = data.data.tasks || [];
+        const projectTasks = Array.isArray(data) ? data : data.items || data.data?.tasks || [];
         console.log('📋 获取到任务数量:', projectTasks.length);
         
         setTasks(prev => {
           const newTasks = new Map(prev);
           projectTasks.forEach((task: any) => {
-            console.log('📝 添加任务:', task.task_id, task.status, task.progress);
-            newTasks.set(task.task_id, {
-              id: task.task_id,
+            const taskId = task.id || task.task_id;
+            if (!taskId) {
+              return;
+            }
+            console.log('📝 添加任务:', taskId, task.status, task.progress);
+            newTasks.set(taskId, {
+              id: taskId,
               status: task.status as TaskStatus['status'],
               progress: task.progress || 0,
               message: task.name,

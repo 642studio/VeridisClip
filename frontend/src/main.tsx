@@ -18,7 +18,9 @@ dayjs.extend(utc)
 
 // Localizacion en espanol
 dayjs.locale('es')
-dayjs.tz.setDefault('America/Hermosillo')
+const defaultTimezone =
+  import.meta.env.VITE_DEFAULT_TIMEZONE?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+dayjs.tz.setDefault(defaultTimezone)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <ConfigProvider locale={esES}>

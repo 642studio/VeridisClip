@@ -77,8 +77,24 @@ const ClipDetailModal: React.FC<ClipDetailModalProps> = ({
   }
 
   const handleOpenSubtitleEditor = async () => {
-    // 显示开发中提示
-    message.info('开发中，敬请期待')
+    if (!clip) {
+      message.error('No se encontro el clip actual')
+      return
+    }
+
+    try {
+      const subtitleResponse = await subtitleEditorApi.getClipSubtitles(projectId, clip.id)
+      const segments = subtitleResponse.segments || []
+      setSubtitleData(segments)
+      setShowSubtitleEditor(true)
+
+      if (segments.length === 0) {
+        message.warning('No se encontraron subtitulos en este clip')
+      }
+    } catch (error) {
+      console.error('Error al cargar subtitulos del clip:', error)
+      message.error(error instanceof Error ? error.message : 'Error al cargar subtitulos')
+    }
   }
 
   const handleSubtitleEditorClose = () => {
@@ -96,7 +112,7 @@ const ClipDetailModal: React.FC<ClipDetailModalProps> = ({
         .flatMap(op => op.segmentIds)
 
       if (deletedSegments.length === 0) {
-        console.log('没有删除操作')
+        message.info('No hay segmentos seleccionados para eliminar')
         return
       }
 
@@ -108,13 +124,16 @@ const ClipDetailModal: React.FC<ClipDetailModalProps> = ({
       )
 
       if (result.success) {
-        console.log('视频编辑成功:', result)
-        // 这里可以添加成功提示
-        // 可以刷新片段列表或更新UI
+        message.success('Edicion aplicada correctamente')
+        handleSubtitleEditorClose()
+        return
       }
+
+      throw new Error(result.message || 'No se pudo completar la edicion')
     } catch (error) {
       console.error('视频编辑失败:', error)
-      // 这里可以添加错误提示
+      message.error(error instanceof Error ? error.message : 'Error al editar video')
+      throw error
     }
   }
 
@@ -204,7 +223,6 @@ const ClipDetailModal: React.FC<ClipDetailModalProps> = ({
               </div>
 
               {/* 操作按钮 */}
-              {console.log('Rendering operation buttons in ClipDetailModal')}
               <Space>
                 <Button 
                   type="primary" 
@@ -298,15 +316,12 @@ const ClipDetailModal: React.FC<ClipDetailModalProps> = ({
 
       {/* 字幕编辑器 */}
       {showSubtitleEditor && (
-        <>
-          {console.log('Rendering SubtitleEditor with:', { showSubtitleEditor, subtitleDataLength: subtitleData.length })}
-          <SubtitleEditor
-            videoUrl={projectApi.getClipVideoUrl(projectId, clip.id, clip.title || clip.generated_title)}
-            subtitles={subtitleData}
-            onSave={handleSubtitleEditorSave}
-            onClose={handleSubtitleEditorClose}
-          />
-        </>
+        <SubtitleEditor
+          videoUrl={projectApi.getClipVideoUrl(projectId, clip.id, clip.title || clip.generated_title)}
+          subtitles={subtitleData}
+          onSave={handleSubtitleEditorSave}
+          onClose={handleSubtitleEditorClose}
+        />
       )}
     </>
   )

@@ -12,7 +12,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 import redis.asyncio as redis
 from ..core.config import get_redis_url
-from ..shared.progress_channels import project_progress_channel
+from ..shared.progress_channels import project_progress_channel, normalize_channel
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +164,7 @@ class ProgressEventService:
     ) -> bool:
         """订阅特定任务的进度事件"""
         try:
-            channel = f"progress:{task_id}"
+            channel = normalize_channel(task_id)
             redis_client = await self._get_redis_client()
             
             pubsub = redis_client.pubsub()
@@ -201,7 +201,7 @@ class ProgressEventService:
         """获取任务进度快照"""
         try:
             redis_client = await self._get_redis_client()
-            channel = f"progress:{task_id}"
+            channel = normalize_channel(task_id)
             snapshot_key = f"progress:last:{channel}"
             snapshot = await redis_client.hgetall(snapshot_key)
             if snapshot:
@@ -269,4 +269,3 @@ async def report_progress(
     return await progress_event_service.report_progress(
         task_id, progress, step, total, phase, message, status, meta
     )
-

@@ -1,6 +1,7 @@
 """FastAPI应用入口点"""
 
 import logging
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -20,6 +21,19 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_cors_origins() -> list[str]:
+    """Parse CORS origins from env with safe local defaults."""
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+    if not raw:
+        return [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 # 使用统一的API路由注册
 from .api.v1 import api_router
@@ -47,7 +61,6 @@ async def startup_event():
     # 加载API密钥到环境变量
     api_key = get_api_key()
     if api_key:
-        import os
         os.environ["DASHSCOPE_API_KEY"] = api_key
         logger.info("API密钥已加载到环境变量")
     else:
@@ -70,10 +83,16 @@ async def shutdown_event():
     logger.info("WebSocket网关服务已禁用")
 
 # Add CORS middleware
+cors_origins = _parse_cors_origins()
+cors_allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
+if "*" in cors_origins and cors_allow_credentials:
+    cors_allow_credentials = False
+    logger.warning("CORS_ALLOW_ORIGINS incluye '*': se desactiva allow_credentials por seguridad.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { buildWsUrl } from '../config/api';
 
 export interface WebSocketMessage {
   type: string;
@@ -148,7 +149,7 @@ export const useWebSocket = (options: UseWebSocketOptions) => {
     }
 
     setConnectionStatus('connecting');
-    const wsUrl = `ws://localhost:8000/api/v1/ws/${userId}`;
+    const wsUrl = buildWsUrl(`/api/v1/ws/${userId}`);
     
     try {
       const ws = new WebSocket(wsUrl);

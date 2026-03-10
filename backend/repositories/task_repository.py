@@ -4,10 +4,13 @@
 """
 
 from typing import List, Optional
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc, func
 from .base import BaseRepository
 from ..models.task import Task, TaskStatus, TaskType
+
+logger = logging.getLogger(__name__)
 
 class TaskRepository(BaseRepository[Task]):
     """任务Repository类"""
@@ -207,7 +210,7 @@ class TaskRepository(BaseRepository[Task]):
         Returns:
             更新后的任务实例或None
         """
-        return self.update(task_id, result=result)
+        return self.update(task_id, result_data=result)
     
     def update_task_error(self, task_id: str, error_message: str) -> Optional[Task]:
         """

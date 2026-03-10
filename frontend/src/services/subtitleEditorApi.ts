@@ -36,6 +36,30 @@ export interface EditPreviewResponse {
 class SubtitleEditorApi {
   private baseUrl = '/api/v1/subtitle-editor'
 
+  private async parseError(response: Response, fallbackMessage: string): Promise<string> {
+    const statusPrefix = `(${response.status})`
+
+    try {
+      const contentType = response.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        const payload = await response.json()
+        const detail = payload?.detail || payload?.message || payload?.error
+        if (typeof detail === 'string' && detail.trim()) {
+          return `${fallbackMessage} ${statusPrefix}: ${detail}`
+        }
+      } else {
+        const text = (await response.text()).trim()
+        if (text) {
+          return `${fallbackMessage} ${statusPrefix}: ${text}`
+        }
+      }
+    } catch {
+      // Ignore parse error and fallback below
+    }
+
+    return `${fallbackMessage} ${statusPrefix}: ${response.statusText || 'Error desconocido'}`
+  }
+
   /**
    * 获取片段的字粒度字幕数据
    */
@@ -43,7 +67,7 @@ class SubtitleEditorApi {
     const response = await fetch(`${this.baseUrl}/${projectId}/clips/${clipId}/subtitles`)
     
     if (!response.ok) {
-      throw new Error(`获取字幕数据失败: ${response.statusText}`)
+      throw new Error(await this.parseError(response, 'No se pudieron cargar los subtitulos'))
     }
     
     return response.json()
@@ -72,8 +96,7 @@ class SubtitleEditorApi {
     })
 
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`编辑视频失败: ${errorText}`)
+      throw new Error(await this.parseError(response, 'No se pudo editar el video por subtitulos'))
     }
 
     return response.json()
@@ -109,8 +132,7 @@ class SubtitleEditorApi {
     })
 
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`创建预览失败: ${errorText}`)
+      throw new Error(await this.parseError(response, 'No se pudo crear la vista previa'))
     }
 
     return response.json()
@@ -133,7 +155,7 @@ class SubtitleEditorApi {
       const response = await fetch(url)
       
       if (!response.ok) {
-        throw new Error(`下载失败: ${response.statusText}`)
+        throw new Error(await this.parseError(response, 'No se pudo descargar el video editado'))
       }
 
       const blob = await response.blob()
